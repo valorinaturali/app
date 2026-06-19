@@ -342,6 +342,43 @@ footer{background:var(--g1);padding:52px 40px 28px;color:rgba(255,255,255,.7)}
   .why-wrap,.pkg-wrap,.mission-wrap,.partners-wrap,.cta-wrap,.how-wrap{padding:60px 20px}
 }
 </style>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+    signOut, onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+  import {
+    getFirestore, doc, setDoc, getDoc, getDocs, collection,
+    query, where, addDoc, serverTimestamp, updateDoc
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCDwkPlUpnjqaARer5r10yKYqSE8GH3MAc",
+    authDomain: "valorinaturali-c97e8.firebaseapp.com",
+    projectId: "valorinaturali-c97e8",
+    storageBucket: "valorinaturali-c97e8.firebasestorage.app",
+    messagingSenderId: "950875981066",
+    appId: "1:950875981066:web:7965601e4991cacce566f3"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // Expose to global scope so our regular <script> can use them
+  window.fb = {
+    auth, db,
+    createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged,
+    doc, setDoc, getDoc, getDocs, collection, query, where, addDoc, serverTimestamp, updateDoc
+  };
+
+  // Signal that Firebase is ready
+  window.dispatchEvent(new Event('firebase-ready'));
+</script>
+
 </head>
 <body>
 
@@ -358,7 +395,15 @@ footer{background:var(--g1);padding:52px 40px 28px;color:rgba(255,255,255,.7)}
     <button class="nav-btn" onclick="showPage('provvigioni')">Provvigioni</button>
     <button class="nav-btn" onclick="showPage('about')">Chi siamo</button>
   </div>
-  <button class="nav-cta" onclick="showPage('shop')">Investi ora</button>
+  <div id="auth-area" style="display:flex;align-items:center;gap:10px">
+    <button class="nav-btn" id="btn-login-open" onclick="openAuthModal('login')">Accedi</button>
+    <button class="nav-cta" id="btn-register-open" onclick="openAuthModal('register')">Registrati</button>
+  </div>
+  <div id="user-area" style="display:none;align-items:center;gap:10px">
+    <span id="user-badge" style="color:#fff;font-size:13px;background:rgba(255,255,255,.1);padding:7px 14px;border-radius:20px"></span>
+    <button class="nav-btn" id="btn-dashboard" onclick="showPage('dashboard')">Dashboard</button>
+    <button class="nav-cta" onclick="doLogout()">Esci</button>
+  </div>
 </nav>
 
 <!-- ═══════════════════════════
@@ -837,6 +882,116 @@ footer{background:var(--g1);padding:52px 40px 28px;color:rgba(255,255,255,.7)}
   </div>
 </div>
 
+<!-- AUTH MODAL -->
+<div id="auth-modal" class="modal-bg" style="display:none">
+  <div class="modal-box">
+    <div class="modal-title" id="auth-title">Accedi al tuo account</div>
+    <p class="modal-sub" id="auth-sub">Accedi per vedere la tua rete e le tue provvigioni</p>
+
+    <div id="auth-register-fields" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Nome e Cognome *</label>
+        <input id="auth-nome" placeholder="Mario Rossi">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Codice referral di chi ti ha invitato (opzionale)</label>
+        <input id="auth-ref-code" placeholder="es. pietrodiano">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Email *</label>
+      <input id="auth-email" type="email" placeholder="mario@email.it">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password *</label>
+      <input id="auth-password" type="password" placeholder="Minimo 6 caratteri">
+    </div>
+
+    <div id="auth-error" class="info-box info-orange" style="display:none"></div>
+
+    <button class="btn btn-green btn-full mt12" id="auth-submit-btn" onclick="submitAuth()">Accedi</button>
+
+    <p class="small muted center mt12" style="text-align:center">
+      <span id="auth-switch-text">Non hai un account?</span>
+      <a href="#" onclick="toggleAuthMode();return false" style="color:var(--g3);font-weight:600;text-decoration:none" id="auth-switch-link">Registrati</a>
+    </p>
+    <button class="btn btn-outline btn-full mt8" onclick="closeAuthModal()">Annulla</button>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════
+     PAGE: DASHBOARD (utente / admin)
+═══════════════════════════ -->
+<div id="page-dashboard" class="page">
+  <div class="inner-page">
+    <div class="inner-hero">
+      <h1 id="dash-title">📊 La tua Dashboard</h1>
+      <p id="dash-sub">Qui trovi la tua rete referral, le provvigioni maturate e lo storico acquisti.</p>
+    </div>
+    <div class="inner-content">
+
+      <!-- Profilo -->
+      <div class="card">
+        <div class="card-title">Il tuo profilo</div>
+        <div class="grid2 mt12">
+          <div><div class="small muted">Nome</div><div class="bold" id="dash-nome" style="font-size:15px">—</div></div>
+          <div><div class="small muted">Email</div><div class="bold" id="dash-email" style="font-size:15px">—</div></div>
+        </div>
+        <div class="grid2 mt12">
+          <div><div class="small muted">Il tuo codice referral</div><div class="bold green" id="dash-code" style="font-size:15px">—</div></div>
+          <div><div class="small muted">Ruolo</div><div class="bold" id="dash-role" style="font-size:15px">—</div></div>
+        </div>
+        <div class="link-box mt12">
+          <span class="link-url" id="dash-link-display">valorinaturali.it/ref/...</span>
+          <button class="btn btn-green btn-sm" onclick="copyDashLink()">Copia</button>
+        </div>
+      </div>
+
+      <!-- Metriche personali -->
+      <div class="card">
+        <div class="card-title" id="dash-metrics-title">La tua rete</div>
+        <div class="metrics-row" id="dash-metrics">
+          <div class="metric"><div class="metric-val" id="dm-lv1">0</div><div class="metric-lbl">Referral Lv1</div></div>
+          <div class="metric"><div class="metric-val" id="dm-lv2">0</div><div class="metric-lbl">Referral Lv2</div></div>
+          <div class="metric"><div class="metric-val" id="dm-tot">€0</div><div class="metric-lbl">Provvigioni totali</div></div>
+        </div>
+      </div>
+
+      <!-- Tabella rete personale -->
+      <div class="card">
+        <div class="card-title" id="dash-table-title">I tuoi referral</div>
+        <div class="card-sub">Solo gli utenti registrati tramite il tuo link</div>
+        <div style="overflow-x:auto">
+          <table class="ref-table">
+            <thead><tr><th>Nome</th><th>Email</th><th>Livello</th><th>Registrato</th></tr></thead>
+            <tbody id="dash-rete-tbody"><tr><td colspan="4" class="muted small" style="text-align:center;padding:20px">Nessun referral ancora. Condividi il tuo link!</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ADMIN ONLY: tutti gli utenti -->
+      <div class="card" id="admin-panel" style="display:none">
+        <div class="card-title">🔑 Vista amministratore — Tutti gli utenti</div>
+        <div class="card-sub">Visibile solo all'account amministratore</div>
+        <div class="metrics-row">
+          <div class="metric"><div class="metric-val" id="admin-total-users">0</div><div class="metric-lbl">Utenti totali</div></div>
+          <div class="metric"><div class="metric-val" id="admin-total-lv1">0</div><div class="metric-lbl">Promotori attivi</div></div>
+          <div class="metric"><div class="metric-val" id="admin-total-network">0</div><div class="metric-lbl">Rete totale</div></div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="ref-table">
+            <thead><tr><th>Nome</th><th>Email</th><th>Codice</th><th>Invitato da</th><th>Registrato</th></tr></thead>
+            <tbody id="admin-rete-tbody"><tr><td colspan="5" class="muted small" style="text-align:center;padding:20px">Caricamento...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CHECKOUT -->
 <div id="checkout-modal" class="modal-bg" style="display:none">
   <div class="modal-box">
@@ -1091,6 +1246,259 @@ document.getElementById('checkout-modal').addEventListener('click',function(e){i
 
 /* ── INIT ── */
 calcROI(); calcRef(); renderRete(); renderProvv();
+
+/* ══════════════════════════════
+   FIREBASE — AUTH & REFERRAL SYSTEM
+══════════════════════════════ */
+const ADMIN_EMAILS = ['valorinaturali@gmail.com'];
+let authMode = 'login'; // 'login' | 'register'
+let currentUser = null;
+let currentUserData = null;
+let fbReady = false;
+
+window.addEventListener('firebase-ready', () => {
+  fbReady = true;
+  initAuthListener();
+});
+
+function initAuthListener() {
+  window.fb.onAuthStateChanged(window.fb.auth, async (user) => {
+    if (user) {
+      currentUser = user;
+      await loadUserData(user);
+      showLoggedInUI();
+    } else {
+      currentUser = null;
+      currentUserData = null;
+      showLoggedOutUI();
+    }
+  });
+}
+
+function showLoggedInUI() {
+  document.getElementById('auth-area').style.display = 'none';
+  document.getElementById('user-area').style.display = 'flex';
+  const name = currentUserData?.nome || currentUser.email.split('@')[0];
+  document.getElementById('user-badge').textContent = '👋 ' + name;
+}
+
+function showLoggedOutUI() {
+  document.getElementById('auth-area').style.display = 'flex';
+  document.getElementById('user-area').style.display = 'none';
+  if (document.getElementById('page-dashboard').classList.contains('active')) {
+    showPage('home');
+  }
+}
+
+/* ── AUTH MODAL UI ── */
+function openAuthModal(mode) {
+  authMode = mode;
+  updateAuthModalUI();
+  document.getElementById('auth-modal').style.display = 'flex';
+  document.getElementById('auth-error').style.display = 'none';
+}
+function closeAuthModal() {
+  document.getElementById('auth-modal').style.display = 'none';
+  document.getElementById('auth-email').value = '';
+  document.getElementById('auth-password').value = '';
+  document.getElementById('auth-nome').value = '';
+  document.getElementById('auth-ref-code').value = '';
+}
+function toggleAuthMode() {
+  authMode = authMode === 'login' ? 'register' : 'login';
+  updateAuthModalUI();
+}
+function updateAuthModalUI() {
+  const isRegister = authMode === 'register';
+  document.getElementById('auth-title').textContent = isRegister ? 'Crea il tuo account' : 'Accedi al tuo account';
+  document.getElementById('auth-sub').textContent = isRegister
+    ? 'Registrati per ottenere il tuo link referral personale'
+    : 'Accedi per vedere la tua rete e le tue provvigioni';
+  document.getElementById('auth-register-fields').style.display = isRegister ? 'block' : 'none';
+  document.getElementById('auth-submit-btn').textContent = isRegister ? 'Crea account' : 'Accedi';
+  document.getElementById('auth-switch-text').textContent = isRegister ? 'Hai già un account?' : 'Non hai un account?';
+  document.getElementById('auth-switch-link').textContent = isRegister ? 'Accedi' : 'Registrati';
+
+  // Pre-fill referral code from URL if present (?ref=codice)
+  if (isRegister) {
+    const params = new URLSearchParams(window.location.search);
+    const refFromUrl = params.get('ref');
+    if (refFromUrl && !document.getElementById('auth-ref-code').value) {
+      document.getElementById('auth-ref-code').value = refFromUrl;
+    }
+  }
+}
+
+/* ── SUBMIT (login or register) ── */
+async function submitAuth() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errBox = document.getElementById('auth-error');
+  errBox.style.display = 'none';
+
+  if (!email || !password) {
+    errBox.textContent = 'Compila email e password.';
+    errBox.style.display = 'block';
+    return;
+  }
+
+  try {
+    if (authMode === 'register') {
+      const nome = document.getElementById('auth-nome').value.trim();
+      const refCode = document.getElementById('auth-ref-code').value.trim().toLowerCase();
+      if (!nome) {
+        errBox.textContent = 'Inserisci nome e cognome.';
+        errBox.style.display = 'block';
+        return;
+      }
+      await registerUser(email, password, nome, refCode);
+    } else {
+      await window.fb.signInWithEmailAndPassword(window.fb.auth, email, password);
+      showToast('✅ Accesso effettuato!');
+    }
+    closeAuthModal();
+  } catch (e) {
+    let msg = 'Si è verificato un errore.';
+    if (e.code === 'auth/email-already-in-use') msg = 'Questa email è già registrata. Provo ad accedere.';
+    if (e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password') msg = 'Email o password non corretti.';
+    if (e.code === 'auth/weak-password') msg = 'La password deve avere almeno 6 caratteri.';
+    if (e.code === 'auth/invalid-email') msg = 'Email non valida.';
+    errBox.textContent = msg;
+    errBox.style.display = 'block';
+  }
+}
+
+/* ── REGISTER USER + REFERRAL LOGIC ── */
+function generateRefCode(nome, email) {
+  const base = (nome || email.split('@')[0]).trim().toLowerCase()
+    .replace(/[àá]/g,'a').replace(/[èé]/g,'e').replace(/[ìí]/g,'i').replace(/[òó]/g,'o').replace(/[ùú]/g,'u')
+    .replace(/\s+/g,'').replace(/[^a-z0-9]/g,'');
+  const suffix = Math.floor(100 + Math.random()*900);
+  return base.slice(0,14) + suffix;
+}
+
+async function registerUser(email, password, nome, refCode) {
+  const cred = await window.fb.createUserWithEmailAndPassword(window.fb.auth, email, password);
+  const uid = cred.user.uid;
+  const myCode = generateRefCode(nome, email);
+
+  let invitedByUid = null;
+  let invitedByLevel1Uid = null; // chi è il livello1 (referrer diretto) — usato per costruire lv2
+
+  if (refCode) {
+    // Find the user who owns this referral code
+    const usersRef = window.fb.collection(window.fb.db, 'users');
+    const q = window.fb.query(usersRef, window.fb.where('refCode', '==', refCode));
+    const snap = await window.fb.getDocs(q);
+    if (!snap.empty) {
+      const referrerDoc = snap.docs[0];
+      invitedByUid = referrerDoc.id;
+      invitedByLevel1Uid = referrerDoc.data().invitedBy || null; // referrer's own referrer (for lv2 chain)
+    }
+  }
+
+  await window.fb.setDoc(window.fb.doc(window.fb.db, 'users', uid), {
+    nome, email,
+    refCode: myCode,
+    invitedBy: invitedByUid,        // direct referrer (level 1 relationship)
+    invitedByLv2: invitedByLevel1Uid, // referrer's referrer (level 2 relationship)
+    isAdmin: ADMIN_EMAILS.includes(email),
+    createdAt: window.fb.serverTimestamp()
+  });
+
+  showToast('🌿 Account creato! Benvenuto in ValoriNaturali.');
+}
+
+/* ── LOAD CURRENT USER DATA ── */
+async function loadUserData(user) {
+  const snap = await window.fb.getDoc(window.fb.doc(window.fb.db, 'users', user.uid));
+  if (snap.exists()) {
+    currentUserData = snap.data();
+  } else {
+    currentUserData = { nome: user.email.split('@')[0], email: user.email, refCode: generateRefCode('', user.email), isAdmin: ADMIN_EMAILS.includes(user.email) };
+  }
+}
+
+function doLogout() {
+  window.fb.signOut(window.fb.auth);
+  showToast('👋 Disconnesso. A presto!');
+}
+
+/* ── DASHBOARD RENDERING ── */
+async function renderDashboard() {
+  if (!currentUser || !currentUserData) {
+    showToast('Devi accedere per vedere la dashboard');
+    showPage('home');
+    return;
+  }
+
+  document.getElementById('dash-nome').textContent = currentUserData.nome || '—';
+  document.getElementById('dash-email').textContent = currentUserData.email || currentUser.email;
+  document.getElementById('dash-code').textContent = currentUserData.refCode || '—';
+  document.getElementById('dash-link-display').textContent = 'valorinaturali.it/?ref=' + (currentUserData.refCode || '');
+
+  const isAdmin = currentUserData.isAdmin || ADMIN_EMAILS.includes(currentUser.email);
+  document.getElementById('dash-role').textContent = isAdmin ? '🔑 Amministratore' : '🌿 Promotore';
+  document.getElementById('admin-panel').style.display = isAdmin ? 'block' : 'none';
+
+  // Fetch ALL users once (small dataset is fine; for scale we'd paginate)
+  const usersSnap = await window.fb.getDocs(window.fb.collection(window.fb.db, 'users'));
+  const allUsers = [];
+  usersSnap.forEach(d => allUsers.push({ uid: d.id, ...d.data() }));
+
+  // My level-1 referrals: invitedBy === my uid
+  const myLv1 = allUsers.filter(u => u.invitedBy === currentUser.uid);
+  // My level-2 referrals: invitedByLv2 === my uid (their referrer's referrer is me)
+  const myLv2 = allUsers.filter(u => u.invitedByLv2 === currentUser.uid);
+
+  document.getElementById('dm-lv1').textContent = myLv1.length;
+  document.getElementById('dm-lv2').textContent = myLv2.length;
+  // Provvigioni stimate (placeholder: nessun dato acquisti reale collegato ancora)
+  document.getElementById('dm-tot').textContent = '€0';
+
+  const tbody = document.getElementById('dash-rete-tbody');
+  const myNetwork = [...myLv1.map(u=>({...u, lv:1})), ...myLv2.map(u=>({...u, lv:2}))];
+  if (myNetwork.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="muted small" style="text-align:center;padding:20px">Nessun referral ancora. Condividi il tuo link!</td></tr>';
+  } else {
+    tbody.innerHTML = myNetwork.map(u => {
+      const date = u.createdAt?.toDate ? u.createdAt.toDate().toLocaleDateString('it-IT') : '—';
+      return `<tr><td><strong>${u.nome||'—'}</strong></td><td class="small muted">${u.email||'—'}</td><td><span class="badge ${u.lv===1?'badge-orange':'badge-green'}">Lv${u.lv}</span></td><td class="small muted">${date}</td></tr>`;
+    }).join('');
+  }
+
+  // ── ADMIN VIEW: everyone ──
+  if (isAdmin) {
+    document.getElementById('admin-total-users').textContent = allUsers.length;
+    document.getElementById('admin-total-lv1').textContent = allUsers.filter(u => allUsers.some(x => x.invitedBy === u.uid)).length;
+    document.getElementById('admin-total-network').textContent = allUsers.filter(u => u.invitedBy || u.invitedByLv2).length;
+
+    const adminTbody = document.getElementById('admin-rete-tbody');
+    if (allUsers.length === 0) {
+      adminTbody.innerHTML = '<tr><td colspan="5" class="muted small" style="text-align:center;padding:20px">Nessun utente registrato.</td></tr>';
+    } else {
+      adminTbody.innerHTML = allUsers.map(u => {
+        const date = u.createdAt?.toDate ? u.createdAt.toDate().toLocaleDateString('it-IT') : '—';
+        const invitedByUser = allUsers.find(x => x.uid === u.invitedBy);
+        const invitedByLabel = invitedByUser ? invitedByUser.nome : '<span class="muted">Diretto</span>';
+        return `<tr><td><strong>${u.nome||'—'}</strong>${u.isAdmin?' <span class="badge badge-blue">Admin</span>':''}</td><td class="small muted">${u.email||'—'}</td><td class="small" style="font-family:monospace">${u.refCode||'—'}</td><td class="small">${invitedByLabel}</td><td class="small muted">${date}</td></tr>`;
+      }).join('');
+    }
+  }
+}
+
+function copyDashLink() {
+  const url = document.getElementById('dash-link-display').textContent;
+  navigator.clipboard.writeText('https://'+url).then(()=>showToast('🔗 Link copiato!')).catch(()=>showToast('Link copiato!'));
+}
+
+/* ── HOOK: showPage override to load dashboard data ── */
+const _origShowPage = showPage;
+showPage = function(id) {
+  _origShowPage(id);
+  if (id === 'dashboard') renderDashboard();
+};
+
 </script>
 </body>
 </html>
